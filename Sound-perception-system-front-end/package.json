@@ -1,0 +1,74 @@
+{
+  "$schema": "https://json.schemastore.org/package.json",
+  "name": "audio_recorder",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "main": "electron/main.cjs",
+  "homepage": "./",
+  "scripts": {
+    "dev": "vite",
+    "build": "run-p type-check \"build-only {@}\" --",
+    "preview": "vite preview",
+    "build-only": "vite build",
+    "type-check": "vue-tsc --build",
+    "lint": "eslint . --fix",
+    "format": "prettier --write src/",
+    "electron:dev": "concurrently \"npm run dev\" \"wait-on http://localhost:5175 && electron .\"",
+    "electron:build": "npm run build && electron-builder",
+    "electron:dist": "npm run build && electron-builder --publish=never"
+  },
+  "dependencies": {
+    "@element-plus/icons-vue": "^2.3.1",
+    "element-plus": "^2.10.1",
+    "vue": "^3.5.13",
+    "vue-router": "^4.5.0"
+  },
+  "devDependencies": {
+    "@tsconfig/node22": "^22.0.0",
+    "@types/node": "^22.13.9",
+    "@vitejs/plugin-vue": "^5.2.1",
+    "@vue/eslint-config-prettier": "^10.2.0",
+    "@vue/eslint-config-typescript": "^14.5.0",
+    "@vue/tsconfig": "^0.7.0",
+    "concurrently": "^7.6.0",
+    "electron": "^28.0.0",
+    "electron-builder": "^24.9.1",
+    "eslint": "^9.21.0",
+    "eslint-plugin-vue": "~10.0.0",
+    "jiti": "^2.4.2",
+    "npm-run-all2": "^7.0.2",
+    "prettier": "3.5.3",
+    "typescript": "~5.8.0",
+    "vite": "^6.2.1",
+    "vite-plugin-vue-devtools": "^7.7.2",
+    "vue-tsc": "^2.2.8",
+    "wait-on": "^7.2.0"
+  },
+  "build": {
+    "productName": "声音感知识别系统",
+    "appId": "com.soundperception.audiorecorder",
+    "directories": {
+      "output": "dist-electron"
+    },
+    "win": {
+      "target": [
+        {
+          "target": "portable",
+          "arch": ["x64"]
+        }
+      ]
+    },
+    "files": [
+      "dist/**/*",
+      "electron/**/*",
+      "!**/.git",
+      "!**/node_modules",
+      "!src",
+      "!public"
+    ],
+    "extraMetadata": {
+      "main": "electron/main.cjs"
+    }
+  }
+}
