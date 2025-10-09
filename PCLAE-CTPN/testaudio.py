@@ -16,6 +16,7 @@ from models.htsat import HTSAT_Swin_Transformer
 from msclap import CLAP
 from utils import Logger, save_networks, load_networks
 from core import train, test
+import sqlite3
 
 # flask相关库
 from flask import Flask, request, jsonify
@@ -97,7 +98,61 @@ parser.add_argument(
 # 修改第93行附近的代码，删除这一行：
 # model_path = os.path.join(args.outf, "models", args.class_name)  # 替换原options参数
 
+#新增数据库初始化函数
+def init_db():
+    """初始化SQLite数据库和表"""
+    db_path = os.path.join(os.path.dirname(__file__), "audio_results.db")
+    conn = sqlite3.connect(db_path)
+    cursor = conn.cursor()
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS audio_results (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            audio_filename TEXT,
+            class_name TEXT,
+            class_id INTEGER,
+            confidence REAL,
+            distance REAL,
+            risk_level TEXT,
+            timestamp TEXT
+        )
+    ''')
+    conn.commit()
+    conn.close()
 
+#新增保存结果到数据库的函数
+def save_result_to_db(filename, result):
+    """将音频分析结果保存到SQLite数据库"""
+    db_path = os.path.join(os.path.dirname(__file__), "audio_results.db")
+    conn = sqlite3.connect(db_path)
+    cursor = conn.cursor()
+
+    # 简单风险等级计算
+    confidence = result.get("confidence", 0)
+    distance = result.get("distance", 0)
+    if distance < 5:
+        risk_level = "高"
+    elif confidence < 0.6:
+        risk_level = "中"
+    else:
+        risk_level = "低"
+
+    timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+    cursor.execute('''
+        INSERT INTO audio_results (audio_filename, class_name, class_id, confidence, distance, risk_level, timestamp)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+    ''', (
+        filename,
+        result.get("class_name", "未知"),
+        result.get("class_id", -1),
+        confidence,
+        distance,
+        risk_level,
+        timestamp
+    ))
+
+    conn.commit()
+    conn.close()
 # 在load_model函数中（第91行之后），修改model_path的构建方式：
 def load_model(options):
     torch.manual_seed(options["seed"])
@@ -143,18 +198,28 @@ def load_model(options):
     if not os.path.exists(model_path):
         os.makedirs(model_path)
 
+    # with open(
+    #     os.path.join(os.path.dirname(__file__), "category_mapping.csv"),
+    #     "r",
+    #     encoding="utf-8",
+    # ) as f:
+    #     reader = csv.reader(f, delimiter=",")
+    #     lines = list(reader)
+
+    # labels = []
+    # for i1 in range(len(lines)):
+    #     label = lines[i1]
+    #     labels.append(label)
+
+    #新改版
     with open(
         os.path.join(os.path.dirname(__file__), "category_mapping.csv"),
         "r",
         encoding="utf-8",
     ) as f:
-        reader = csv.reader(f, delimiter=",")
-        lines = list(reader)
-
-    labels = []
-    for i1 in range(len(lines)):
-        label = lines[i1]
-        labels.append(label)
+        reader = csv.DictReader(f)  # 按CSV表头（index/category）读取，更直观
+        # 生成 {class_id: 具体声音名称} 的字典，比如 {20: "别人敲键盘、鼠标的声音"}
+        labels = {int(row["index"]): row["category"] for row in reader}
 
     file_name = "{}_{}_{}_{}".format(
         options["model"], options["loss"], options["item"], options["cs"]
@@ -195,14 +260,27 @@ def analyze_audio(net, criterion, clap_model, labels, audio_path, options):
                 "distance": float(min_distance),
             }
 
+            # if min_distance >= 5:
+            #     a = labels[predictions.item() + 1]
+            #     result["class_name"] = a[0]
+            #     result["class_id"] = int(predictions.item())
+            #     result["category"] = a[1]
+            # else:
+            #     result["class_name"] = "未知类别"
+            #     result["class_id"] = -1
+
+            #新改版
             if min_distance >= 5:
-                a = labels[predictions.item() + 1]
-                result["class_name"] = a[0]
-                result["class_id"] = int(predictions.item())
-                result["category"] = a[1]
+                class_id = int(predictions.item())  # 模型预测的类别ID（比如20）
+                # 从字典中查对应的具体声音名称，若ID不存在则显示“未知类别”
+                result["class_name"] = labels.get(class_id, "未知类别")
+                result["class_id"] = class_id
+                # （可选）如果不需要“category”字段，可删除这行；若需要，可和class_name保持一致
+                result["category"] = result["class_name"]
             else:
                 result["class_name"] = "未知类别"
                 result["class_id"] = -1
+                result["category"] = "未知类别"  # 保持字段统一
 
             return result
         except Exception as e:
@@ -344,6 +422,11 @@ def api_analyze():
             global_options,
         )
 
+        #新增保存结果到数据库,又新增打印路径
+        save_result_to_db(filename, result)
+        print(result)
+        print("DB Path:", os.path.join(os.path.dirname(__file__), "audio_results.db"))
+
         # 返回结果
         return jsonify(result)
     except Exception as e:
@@ -398,17 +481,19 @@ def main_api():
     args = parser.parse_args()
     options = vars(args)
 
+    # #新增初始化数据库
+    init_db()
+    
     # 全局模型初始化，避免每次API请求都加载模型
     global global_model, global_criterion, global_clap_model, global_labels, global_options
     global_model, global_criterion, global_clap_model, global_labels = load_model(
         options
     )
     global_options = options
-
+    
     print("模型加载完成，API服务启动中...")
     # 启动Flask服务
     app.run(host="0.0.0.0", port=options["port"], debug=False)
-
 
 if __name__ == "__main__":
     # 检查是否有--api参数指定运行模式
