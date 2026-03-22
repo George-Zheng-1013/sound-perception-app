@@ -211,3 +211,6 @@ Sound-perception-system-front-end/dist/
 Sound-perception-system-front-end/dist-electron/win-unpacked/
 *.log
 .env
+/audioset/exported_alarm_wavs
+*.pt
+*.pth
