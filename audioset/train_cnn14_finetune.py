@@ -7,7 +7,10 @@ from tqdm import tqdm
 import numpy as np
 
 from cnn14_models import Cnn14  # 你现有的 CNN14 模型
-from panns_dataset import ALL_LABELS, PannsFastDataset  # PannsFastDataset 读取你的 .pt 数据
+from panns_dataset import (
+    ALL_LABELS,
+    PannsFastDataset,
+)  # PannsFastDataset 读取你的 .pt 数据
 
 device = "cuda" if torch.cuda.is_available() else "cpu"
 
@@ -33,6 +36,7 @@ def compute_map(y_true: np.ndarray, y_score: np.ndarray) -> float:
         return 0.0
     return float(np.mean(ap_list))
 
+
 # -------------------------------
 # 轻量级分类器
 # -------------------------------
@@ -40,6 +44,7 @@ class SimpleClassifier(nn.Module):
     def __init__(self, input_dim, num_classes):
         super().__init__()
         self.fc = nn.Linear(input_dim, num_classes)
+
     def forward(self, x):
         return self.fc(x)
 
@@ -56,6 +61,7 @@ class Cnn14WithMLP(nn.Module):
         logits = self.mlp(emb)
         return logits
 
+
 # -------------------------------
 # 加载预训练 CNN14 并冻结卷积层
 # -------------------------------
@@ -69,12 +75,12 @@ def load_cnn14_for_features(checkpoint_path: str):
         fmax=8000,
         classes_num=527,
     )
-    state = torch.load(checkpoint_path, map_location="cpu")
+    state = torch.load(checkpoint_path, map_location="cpu", weights_only=False)
     if "model" in state:
         base_model.load_state_dict(state["model"], strict=False)
     else:
         base_model.load_state_dict(state, strict=False)
-    
+
     # 冻结 CNN14 所有参数
     for param in base_model.parameters():
         param.requires_grad = False
@@ -85,15 +91,21 @@ def load_cnn14_for_features(checkpoint_path: str):
 
     if hasattr(base_model, "spec_augmenter"):
         base_model.spec_augmenter = nn.Identity()  # 不用增强，加速
-    
+
     return base_model.to(device).eval()  # eval 模式
+
 
 # -------------------------------
 # 特征提取 DataLoader
 # -------------------------------
 def extract_embeddings(cnn_model, dataset, batch_size=16, num_workers=4):
-    loader = DataLoader(dataset, batch_size=batch_size, shuffle=False,
-                        num_workers=num_workers, pin_memory=True)
+    loader = DataLoader(
+        dataset,
+        batch_size=batch_size,
+        shuffle=False,
+        num_workers=num_workers,
+        pin_memory=True,
+    )
     embeddings = []
     labels = []
 
@@ -104,15 +116,18 @@ def extract_embeddings(cnn_model, dataset, batch_size=16, num_workers=4):
             emb = out_dict["clipwise_output"]  # [B, 2048]
             embeddings.append(emb.cpu())
             labels.append(lbl)
-    
+
     embeddings = torch.cat(embeddings, dim=0)
     labels = torch.cat(labels, dim=0)
     return embeddings, labels
 
+
 # -------------------------------
 # 训练 MLP 分类器
 # -------------------------------
-def train_classifier(embeddings, labels, num_classes=len(ALL_LABELS), num_epochs=50, batch_size=16):
+def train_classifier(
+    embeddings, labels, num_classes=len(ALL_LABELS), num_epochs=50, batch_size=16
+):
     num_samples = embeddings.shape[0]
     indices = np.arange(num_samples)
     np.random.shuffle(indices)
@@ -122,10 +137,16 @@ def train_classifier(embeddings, labels, num_classes=len(ALL_LABELS), num_epochs
     train_sampler = SubsetRandomSampler(train_idx)
     val_sampler = SubsetRandomSampler(val_idx)
 
-    train_loader = DataLoader(torch.utils.data.TensorDataset(embeddings, labels),
-                              batch_size=batch_size, sampler=train_sampler)
-    val_loader = DataLoader(torch.utils.data.TensorDataset(embeddings, labels),
-                            batch_size=batch_size, sampler=val_sampler)
+    train_loader = DataLoader(
+        torch.utils.data.TensorDataset(embeddings, labels),
+        batch_size=batch_size,
+        sampler=train_sampler,
+    )
+    val_loader = DataLoader(
+        torch.utils.data.TensorDataset(embeddings, labels),
+        batch_size=batch_size,
+        sampler=val_sampler,
+    )
 
     input_dim = embeddings.shape[1]
     model = SimpleClassifier(input_dim, num_classes).to(device)
@@ -172,7 +193,9 @@ def train_classifier(embeddings, labels, num_classes=len(ALL_LABELS), num_epochs
         val_labels_np = torch.cat(all_val_labels, dim=0).numpy()
         val_map = compute_map(val_labels_np, val_logits_np)
 
-        print(f"Epoch {epoch}: train_loss={train_loss:.4f}, val_loss={val_loss:.4f}, mAP={val_map:.4f}")
+        print(
+            f"Epoch {epoch}: train_loss={train_loss:.4f}, val_loss={val_loss:.4f}, mAP={val_map:.4f}"
+        )
 
         # 保存最优模型
         if val_loss < best_val_loss:
@@ -181,6 +204,7 @@ def train_classifier(embeddings, labels, num_classes=len(ALL_LABELS), num_epochs
             print(f"保存新最优模型，val_loss={best_val_loss:.4f}")
 
     return model
+
 
 # -------------------------------
 # 推理示例
@@ -201,6 +225,7 @@ def predict(model, cnn_model, waveform):
         pred_labels = [ALL_LABELS[i] for i, p in enumerate(probs) if p >= threshold]
         return pred_labels
 
+
 # -------------------------------
 # 主流程
 # -------------------------------
@@ -211,9 +236,13 @@ def main():
     checkpoint_path = r"D:\audioset\Cnn14_16k_mAP=0.438.pth"
     cnn_model = load_cnn14_for_features(checkpoint_path)
 
-    embeddings, labels = extract_embeddings(cnn_model, dataset, batch_size=16, num_workers=4)
+    embeddings, labels = extract_embeddings(
+        cnn_model, dataset, batch_size=16, num_workers=4
+    )
 
-    model = train_classifier(embeddings, labels, num_classes=len(ALL_LABELS), num_epochs=50, batch_size=16)
+    model = train_classifier(
+        embeddings, labels, num_classes=len(ALL_LABELS), num_epochs=50, batch_size=16
+    )
 
     # 训练完后，用单独的验证集进行验证
     val_merged_path = r"D:\audioset\panns_merged_alarm_balanced_val.pt"
@@ -233,7 +262,9 @@ def main():
         criterion = nn.BCEWithLogitsLoss()
         loss_sum, count = 0.0, 0
         with torch.no_grad():
-            for emb_batch, lbl_batch in tqdm(val_loader, desc="Evaluating on external val set"):
+            for emb_batch, lbl_batch in tqdm(
+                val_loader, desc="Evaluating on external val set"
+            ):
                 emb_batch = emb_batch.to(device)
                 lbl_batch = lbl_batch.to(device)
                 logits = model(emb_batch)
@@ -241,13 +272,16 @@ def main():
                 loss_sum += loss.item() * emb_batch.size(0)
                 count += emb_batch.size(0)
         avg_loss = loss_sum / count
-        print(f"[验证集 {os.path.basename(val_merged_path)}] 平均 BCE loss: {avg_loss:.4f}")
+        print(
+            f"[验证集 {os.path.basename(val_merged_path)}] 平均 BCE loss: {avg_loss:.4f}"
+        )
 
     # 保存端到端模型（Cnn14 + MLP）为一个 .pt 文件
     combined = Cnn14WithMLP(cnn_model, model)
     combined_out_path = r"D:\audioset\cnn14_mlp_combined.pt"
     torch.save(combined, combined_out_path)
     print(f"已将完整模型保存为: {combined_out_path}")
+
 
 if __name__ == "__main__":
     main()

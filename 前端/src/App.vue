@@ -13,10 +13,6 @@
         <main class="app-main">
             <RouterView />
         </main>
-
-        <footer class="app-footer">
-            <p>&copy; 2024 声音感知识别系统 | 挑战杯作品</p>
-        </footer>
     </div>
 </template>
 
@@ -69,20 +65,6 @@ import { Microphone } from '@element-plus/icons-vue'
 .app-main {
     flex: 1;
     padding: 0;
-}
-
-.app-footer {
-    background: #2c3e50;
-    color: white;
-    text-align: center;
-    padding: 1rem 0;
-    margin-top: auto;
-}
-
-.app-footer p {
-    margin: 0;
-    font-size: 0.9rem;
-    opacity: 0.8;
 }
 
 /* 响应式设计 */
