@@ -1,20 +1,29 @@
 <template>
+
     <div class="audio-recorder"
-        :class="['direction-' + direction, (result && (result.risk_level_css || result.risk_level)) ? 'risk-' + mapRiskToCss(result?.risk_level, result?.confidence) : '']">
+        :class="['direction-' + direction, (result && (result.risk_level_css || result.risk_level)) ? 'risk-' + getResultVisualRisk() : '']">
         <div v-if="result || isRealtimeListening || isRecording" class="risk-banner"
-            :class="`risk-banner-${mapRiskToCss(result?.risk_level, result?.confidence)}`">
+            :class="`risk-banner-${getResultVisualRisk()}`">
             <div class="risk-banner-main">
                 <span class="risk-banner-kicker">实时声学态势</span>
-                <strong class="risk-banner-title">{{ getVisualRiskLabel(mapRiskToCss(result?.risk_level,
-                    result?.confidence)) }}</strong>
-                <span class="risk-banner-subtitle">{{ getRiskActionSuggestion(mapRiskToCss(result?.risk_level,
-                    result?.confidence), direction) }}</span>
+                <strong class="risk-banner-title">{{ getVisualRiskLabel(getResultVisualRisk()) }}</strong>
+                <span class="risk-banner-subtitle">{{ getRiskActionSuggestion(getResultVisualRisk(), direction)
+                }}</span>
             </div>
             <div class="risk-banner-meta">
-                <el-tag effect="dark" :type="getRiskTagType(result?.risk_level || 'safe')">
-                    {{ getRiskLevelText(result?.risk_level || 'safe') }}
+                <el-tag effect="dark" :type="getRiskTagType(result?.risk_level || 'low')">
+                    {{ getRiskLevelText(result?.risk_level || 'low') }}
                 </el-tag>
                 <span class="risk-banner-dir">方向：{{ getDirectionText(direction) }}</span>
+            </div>
+        </div>
+
+        <div v-if="isMobileDevice && isAlertRisk(getResultVisualRisk())" class="mobile-alert-overlay"
+            :class="`mobile-alert-${getResultVisualRisk()}`">
+            <div class="mobile-alert-inner">
+                <span class="mobile-alert-kicker">实时告警</span>
+                <strong class="mobile-alert-level">{{ getRiskLevelText(getResultVisualRisk()) }}</strong>
+                <span class="mobile-alert-dir">方向：{{ getDirectionText(direction) }}</span>
             </div>
         </div>
 
@@ -78,31 +87,6 @@
                                 下载录音
                             </el-button>
                         </div>
-
-                        <!-- 测试按钮（开发时使用） -->
-                        <div class="test-buttons">
-                            <el-button type="danger" size="small" @click="testHighRisk" plain>
-                                测试高风险
-                            </el-button>
-                            <el-button type="warning" size="small" @click="testMediumRisk" plain>
-                                测试中风险
-                            </el-button>
-                            <el-button type="success" size="small" @click="testLowRisk" plain>
-                                测试低风险
-                            </el-button>
-                            <el-button type="info" size="small" @click="clearResult" plain>
-                                清除结果
-                            </el-button>
-                            <el-button type="primary" size="small" @click="testLeftDirection" plain>
-                                左侧方向
-                            </el-button>
-                            <el-button type="primary" size="small" @click="testRightDirection" plain>
-                                右侧方向
-                            </el-button>
-                            <el-button type="info" size="small" @click="clearDirection" plain>
-                                清除方向
-                            </el-button>
-                        </div>
                     </div>
                 </el-card>
             </el-col>
@@ -128,13 +112,12 @@
         <el-row :gutter="24" justify="center" v-if="(isRecording && direction) || result">
             <el-col :lg="20" :md="22" :sm="24">
                 <el-card class="warning-panel" :class="[
-                    `warning-${mapRiskToCss(result?.risk_level, result?.confidence)}`,
+                    `warning-${getResultVisualRisk()}`,
                     direction ? `warning-direction-${direction}` : ''
                 ]" shadow="always">
                     <template #header>
                         <div class="warning-header">
-                            <el-icon class="warning-icon"
-                                :class="`warning-icon-${mapRiskToCss(result?.risk_level, result?.confidence)}`">
+                            <el-icon class="warning-icon" :class="`warning-icon-${getResultVisualRisk()}`">
                                 <Warning />
                             </el-icon>
                             <span class="warning-title">声源方向检测与风险提示</span>
@@ -157,7 +140,7 @@
                             <div class="direction-text">
                                 <h3>声源方向：{{ getDirectionText(direction) }}</h3>
                                 <p class="risk-description">
-                                    {{ getRiskDescription(mapRiskToCss(result?.risk_level, result?.confidence)) }}
+                                    {{ getRiskDescription(getResultVisualRisk()) }}
                                 </p>
                             </div>
                         </div>
@@ -521,28 +504,46 @@ type NormalizedPrediction = {
     risk_label?: string
 }
 
-const getPredRiskLevel = (p: NormalizedPrediction) => p.risk_level ?? getRiskLevelByClassId(p.class_id)
+type VisualRisk = 'low' | 'medium' | 'high'
 
-// 将后端二分类 risk + 置信度映射到前端三档视觉风险
+const normalizeRiskLevel = (risk?: string | null): VisualRisk | null => {
+    if (!risk) return null
+    if (risk === 'low' || risk === 'medium' || risk === 'high') return risk
+    if (risk === 'safe') return 'low'
+    if (risk === 'danger') return 'high'
+    return null
+}
+
+const getPredRiskLevel = (p: NormalizedPrediction): VisualRisk => {
+    return getRiskLevelByClassId(p.class_id)
+}
+
+// 将风险标签映射到前端三档视觉风险，并兼容旧版 danger/safe
 const mapRiskToCss = (risk?: string | null, confidence?: number | null) => {
+    const normalized = normalizeRiskLevel(risk)
+    if (normalized) return normalized
+
     const conf = Number(confidence ?? 0)
-    if (risk === 'danger') {
-        return conf >= 0.75 ? 'high' : 'medium'
-    }
-    if (risk === 'safe') {
-        return conf >= 0.7 ? 'low' : 'medium'
-    }
     return conf >= 0.8 ? 'medium' : 'low'
 }
+
+const getResultVisualRisk = (): VisualRisk => {
+    if (result.value?.class_id !== undefined && result.value?.class_id !== null) {
+        return getRiskLevelByClassId(result.value.class_id)
+    }
+    return mapRiskToCss(result.value?.risk_level, result.value?.confidence)
+}
+
+const isAlertRisk = (risk?: string | null) => risk === 'medium' || risk === 'high'
 
 const getVisualRiskLabel = (visualRisk: string) => {
     switch (visualRisk) {
         case 'high':
-            return '高风险预警'
+            return '高风险'
         case 'medium':
-            return '中风险警戒'
+            return '低风险'
         default:
-            return '低风险安全'
+            return '安全'
     }
 }
 
@@ -552,7 +553,7 @@ const getRiskActionSuggestion = (visualRisk: string, dir: DirectionValue) => {
         case 'high':
             return `请立即查看${dirText}并确认是否存在危险声源`
         case 'medium':
-            return `请重点关注${dirText}环境变化，建议持续观察`
+            return `请留意${dirText}环境变化，建议持续观察`
         default:
             return `当前环境总体安全，建议继续保持${dirText}监听`
     }
@@ -567,7 +568,7 @@ function applyPredictionsFromData(data: ServerResult) {
                     class_id: p.class_id ?? -1,
                     class_name: p.class_name ?? p.class ?? '未知类别',
                     confidence: Number(p.confidence ?? 0),
-                    risk_level: p.risk_level,
+                    risk_level: getRiskLevelByClassId(p.class_id ?? -1),
                     risk_label: p.risk_label,
                 })
             }
@@ -577,7 +578,7 @@ function applyPredictionsFromData(data: ServerResult) {
                     class_id: p.class_id ?? -1,
                     class_name: p.class_name ?? '未知类别',
                     confidence: Number(p.confidence ?? 0),
-                    risk_level: p.risk_level,
+                    risk_level: getRiskLevelByClassId(p.class_id ?? -1),
                     risk_label: p.risk_label,
                 })
             }
@@ -587,7 +588,7 @@ function applyPredictionsFromData(data: ServerResult) {
                     class_id: p.class_id ?? -1,
                     class_name: p.class_name ?? p.class ?? '未知类别',
                     confidence: Number(p.confidence ?? 0),
-                    risk_level: p.risk_level,
+                    risk_level: getRiskLevelByClassId(p.class_id ?? -1),
                     risk_label: p.risk_label,
                 })
             }
@@ -596,7 +597,7 @@ function applyPredictionsFromData(data: ServerResult) {
                 class_id: data.class_id,
                 class_name: data.class_name ?? data.category ?? '未知类别',
                 confidence: Number(data.confidence ?? 0),
-                risk_level: data.risk_level,
+                risk_level: getRiskLevelByClassId(data.class_id),
                 risk_label: data.risk_label,
             })
         }
@@ -653,23 +654,29 @@ const analyzeDirection = () => {
     requestAnimationFrame(analyzeDirection)
 }
 
-// 风险等级分类映射
-const riskCategories = {
-    low: [0, 1, 5, 6, 7, 8, 9, 10, 11, 18, 19, 20, 21, 23, 29, 41, 42],
-    medium: [3, 12, 13, 14, 15, 16, 17, 22, 28, 30, 34, 35, 36, 43, 44, 45, 46, 47],
-    high: [2, 4, 24, 25, 31, 32, 33, 37, 38, 39, 40]
+// 16类风险映射（来源：audioset/risk_labels.csv）
+const riskLabelByClassId: Record<number, VisualRisk> = {
+    0: 'medium',
+    1: 'high',
+    2: 'high',
+    3: 'medium',
+    4: 'medium',
+    5: 'low',
+    6: 'high',
+    7: 'high',
+    8: 'low',
+    9: 'low',
+    10: 'low',
+    11: 'low',
+    12: 'low',
+    13: 'low',
+    14: 'medium',
+    15: 'low',
 }
 
 // 根据类别ID获取风险等级
-function getRiskLevelByClassId(classId: number): string {
-    for (const id of (riskCategories.high || [])) {
-        if (id === classId) return 'danger'
-    }
-    for (const id of (riskCategories.medium || [])) {
-        if (id === classId) return 'danger'
-    }
-    // 其余视为 safe（低风险）
-    return 'safe'
+function getRiskLevelByClassId(classId: number): VisualRisk {
+    return riskLabelByClassId[classId] ?? 'low'
 }
 
 // 开始录音
@@ -931,7 +938,7 @@ const setResultFromCandidate = (
     resultLastUpdated.value = nowMs()
 
     // 根据风险等级触发相应的振动反馈
-    if (riskLevel === 'danger') {
+    if (riskLevel === 'high') {
         vibrate(vibrationPatterns.highRisk) // 高风险：多次快速强烈振动
     } else if (riskLevel === 'medium') {
         vibrate(vibrationPatterns.alert)    // 中风险：警报振动
@@ -1034,7 +1041,7 @@ const sendAudioForAnalysis = async (audioBlob: Blob, silent: boolean = false) =>
                     class_id: p.class_id ?? -1,
                     class_name: p.class_name ?? p.class ?? '未知类别',
                     confidence: Number(p.confidence ?? 0),
-                    risk_level: p.risk_level,
+                    risk_level: getRiskLevelByClassId(p.class_id ?? -1),
                     risk_label: p.risk_label,
                 })
             }
@@ -1044,7 +1051,7 @@ const sendAudioForAnalysis = async (audioBlob: Blob, silent: boolean = false) =>
                     class_id: p.class_id ?? -1,
                     class_name: p.class_name ?? '未知类别',
                     confidence: Number(p.confidence ?? 0),
-                    risk_level: p.risk_level,
+                    risk_level: getRiskLevelByClassId(p.class_id ?? -1),
                     risk_label: p.risk_label,
                 })
             }
@@ -1054,7 +1061,7 @@ const sendAudioForAnalysis = async (audioBlob: Blob, silent: boolean = false) =>
                     class_id: p.class_id ?? -1,
                     class_name: p.class_name ?? p.class ?? '未知类别',
                     confidence: Number(p.confidence ?? 0),
-                    risk_level: p.risk_level,
+                    risk_level: getRiskLevelByClassId(p.class_id ?? -1),
                     risk_label: p.risk_label,
                 })
             }
@@ -1063,7 +1070,7 @@ const sendAudioForAnalysis = async (audioBlob: Blob, silent: boolean = false) =>
                 class_id: data.class_id,
                 class_name: data.class_name ?? data.category ?? '未知类别',
                 confidence: Number(data.confidence ?? 0),
-                risk_level: data.risk_level,
+                risk_level: getRiskLevelByClassId(data.class_id),
                 risk_label: data.risk_label,
             })
         }
@@ -1074,7 +1081,7 @@ const sendAudioForAnalysis = async (audioBlob: Blob, silent: boolean = false) =>
                 confidence: Number(data.confidence ?? 0),
                 is_known: data.is_known ?? false,
                 class_id: data.class_id ?? -1,
-                risk_level: data.risk_level ?? (data.class_id !== undefined ? getRiskLevelByClassId(data.class_id) : 'medium'),
+                risk_level: data.class_id !== undefined ? getRiskLevelByClassId(data.class_id) : 'low',
                 predictions: [],
                 top_predictions: [],
             } as unknown as AudioResult
@@ -1170,9 +1177,11 @@ const getConfidenceColor = (confidence: number) => {
 // 获取风险等级标签类型（二分类）
 const getRiskTagType = (riskLevel: string) => {
     switch (riskLevel) {
-        case 'danger':
+        case 'high':
             return 'danger'
-        case 'safe':
+        case 'medium':
+            return 'warning'
+        case 'low':
             return 'success'
         default:
             return 'info'
@@ -1182,9 +1191,11 @@ const getRiskTagType = (riskLevel: string) => {
 // 获取风险等级文本（展示为中文二分类）
 const getRiskLevelText = (riskLevel: string) => {
     switch (riskLevel) {
-        case 'danger':
-            return '危险'
-        case 'safe':
+        case 'high':
+            return '高风险'
+        case 'medium':
+            return '低风险'
+        case 'low':
             return '安全'
         default:
             return '未知'
@@ -1206,9 +1217,9 @@ const getRiskDescription = (visualRisk: string) => {
         case 'high':
             return '高风险：疑似危险事件声源，请立即确认并采取措施。'
         case 'medium':
-            return '中风险：声源存在异常特征，建议持续关注与复核。'
+            return '低风险：存在一定异常特征，建议保持关注。'
         default:
-            return '低风险：环境整体稳定，持续监测中。'
+            return '安全：环境整体稳定，持续监测中。'
     }
 }
 
@@ -1653,6 +1664,111 @@ onBeforeUnmount(() => {
     border-color: rgba(47, 158, 68, 0.35);
     background: linear-gradient(92deg, rgba(47, 158, 68, 0.18), rgba(233, 248, 237, 0.95));
     color: #123d20;
+}
+
+.mobile-alert-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 3500;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    pointer-events: none;
+    backdrop-filter: blur(1px);
+    animation: mobile-alert-fade 1s infinite alternate;
+}
+
+.mobile-alert-inner {
+    width: min(92vw, 420px);
+    border-radius: 20px;
+    padding: 22px 16px;
+    text-align: center;
+    color: #fff;
+    box-shadow: 0 20px 50px rgba(0, 0, 0, 0.35);
+    border: 2px solid rgba(255, 255, 255, 0.45);
+}
+
+.mobile-alert-kicker {
+    display: block;
+    font-size: 14px;
+    font-weight: 700;
+    letter-spacing: 0.2em;
+    text-transform: uppercase;
+    opacity: 0.9;
+    margin-bottom: 10px;
+}
+
+.mobile-alert-level {
+    display: block;
+    font-size: clamp(38px, 12vw, 62px);
+    line-height: 1;
+    font-weight: 900;
+    letter-spacing: 0.04em;
+    margin-bottom: 10px;
+    text-shadow: 0 0 24px rgba(255, 255, 255, 0.55);
+}
+
+.mobile-alert-dir {
+    display: block;
+    font-size: 16px;
+    font-weight: 700;
+    opacity: 0.95;
+}
+
+.mobile-alert-high {
+    background: rgba(123, 0, 0, 0.66);
+}
+
+.mobile-alert-high .mobile-alert-inner {
+    background: linear-gradient(160deg, rgba(236, 44, 44, 0.95), rgba(129, 0, 0, 0.95));
+    animation: mobile-alert-high-pulse 0.75s infinite;
+}
+
+.mobile-alert-medium {
+    background: rgba(120, 74, 0, 0.58);
+}
+
+.mobile-alert-medium .mobile-alert-inner {
+    background: linear-gradient(160deg, rgba(245, 139, 0, 0.95), rgba(156, 91, 0, 0.95));
+    animation: mobile-alert-medium-pulse 1s infinite;
+}
+
+@keyframes mobile-alert-fade {
+    from {
+        opacity: 0.9;
+    }
+
+    to {
+        opacity: 1;
+    }
+}
+
+@keyframes mobile-alert-high-pulse {
+
+    0%,
+    100% {
+        transform: scale(1);
+        box-shadow: 0 0 0 0 rgba(255, 55, 55, 0.8);
+    }
+
+    50% {
+        transform: scale(1.03);
+        box-shadow: 0 0 0 16px rgba(255, 55, 55, 0);
+    }
+}
+
+@keyframes mobile-alert-medium-pulse {
+
+    0%,
+    100% {
+        transform: scale(1);
+        box-shadow: 0 0 0 0 rgba(255, 153, 0, 0.75);
+    }
+
+    50% {
+        transform: scale(1.02);
+        box-shadow: 0 0 0 14px rgba(255, 153, 0, 0);
+    }
 }
 
 .mobile-quick-actions {
@@ -2465,7 +2581,7 @@ onBeforeUnmount(() => {
         left: 10px;
         right: 10px;
         bottom: 10px;
-        z-index: 1200;
+        z-index: 3600;
         display: grid;
         grid-template-columns: repeat(3, minmax(0, 1fr));
         gap: 8px;
@@ -2520,6 +2636,20 @@ onBeforeUnmount(() => {
 @media (max-width: 480px) {
     .audio-recorder {
         padding: 8px 8px 92px;
+    }
+
+    .mobile-alert-inner {
+        width: calc(100vw - 20px);
+        padding: 20px 12px;
+        border-radius: 16px;
+    }
+
+    .mobile-alert-kicker {
+        font-size: 12px;
+    }
+
+    .mobile-alert-dir {
+        font-size: 14px;
     }
 
     .risk-banner-title {

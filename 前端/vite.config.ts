@@ -26,7 +26,7 @@ export default defineConfig({
     server: {
         port: 5175,
         host: true,
-        allowedHosts: ['correctly-parental-epinions-cat.trycloudflare.com'],
+        allowedHosts: ['womens-crawford-regardless-habitat.trycloudflare.com'],
         proxy: {
             '/api': {
                 target: 'http://127.0.0.1:5000',

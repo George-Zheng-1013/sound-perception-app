@@ -1,17 +1,17 @@
 class_id,class_name,risk_label
-0,Vehicle,safe
-1,Alarm,risk
-2,Explosion,risk
-3,Car passing by,safe
-4,"Accelerating, revving, vroom",safe
-5,Engine,safe
-6,Truck,safe
-7,Motor vehicle (road),safe
-8,Speech,safe
-9,"Male speech, man speaking",safe
-10,"Female speech, woman speaking",safe
-11,Music,safe
-12,Acoustic guitar,safe
-13,"Violin, fiddle",safe
-14,Dog,safe
-15,Bird,safe
+0,Vehicle,medium
+1,Alarm,high
+2,Explosion,high
+3,Car passing by,medium
+4,"Accelerating, revving, vroom",medium
+5,Engine,low
+6,Truck,high
+7,Motor vehicle (road),high
+8,Speech,low
+9,"Male speech, man speaking",low
+10,"Female speech, woman speaking",low
+11,Music,low
+12,Acoustic guitar,low
+13,"Violin, fiddle",low
+14,Dog,medium
+15,Bird,low
